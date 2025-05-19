@@ -1,0 +1,11 @@
+<!-- 
+  Esto es un SVG pero se guarda en resources/zoho-icon.svg 
+  Para el PNG se debe usar una herramienta de conversión externa
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
+  <rect width="128" height="128" fill="#2464C4" rx="16" />
+  <circle cx="64" cy="64" r="40" stroke="#FFFFFF" stroke-width="6" fill="none" />
+  <line x1="64" y1="64" x2="64" y2="40" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" />
+  <line x1="64" y1="64" x2="88" y2="76" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" />
+  <text x="37" y="20" fill="#FFFFFF" font-family="sans-serif" font-size="14">ZOHO</text>
+</svg>

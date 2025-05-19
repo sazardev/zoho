@@ -1,0 +1,267 @@
+import * as vscode from "vscode";
+import axios from "axios";
+import { v4 as uuidv4 } from "uuid";
+
+/**
+ * Gestiona la autenticación con Zoho Projects mediante OAuth 2.0
+ */
+export class ZohoAuthenticationProvider {
+  private static readonly AUTH_TYPE = "zoho-projects";
+  private static readonly AUTH_NAME = "Zoho Projects";
+  private static readonly SCOPES =
+    "ZohoProjects.portals.READ,ZohoProjects.projects.READ,ZohoProjects.tasks.READ,ZohoProjects.tasks.CREATE,ZohoProjects.timesheets.READ,ZohoProjects.timesheets.CREATE,ZohoProjects.timesheets.UPDATE,ZohoProjects.timesheets.DELETE";
+  // Variable estática para controlar el proceso de autenticación en curso
+  private static uriHandlerRegistration?: vscode.Disposable;
+
+  private authenticationSession: vscode.AuthenticationSession | undefined;
+  private context: vscode.ExtensionContext;
+
+  constructor(context: vscode.ExtensionContext) {
+    this.context = context;
+  }
+
+  /**
+   * Inicia el proceso de autenticación
+   */
+  public async login(): Promise<vscode.AuthenticationSession | undefined> {
+    try {
+      // Verificar si ya hay un proceso de autenticación en curso
+      if (ZohoAuthenticationProvider.uriHandlerRegistration) {
+        vscode.window.showInformationMessage(
+          "Ya hay un proceso de autenticación en curso. Por favor, completa ese proceso primero."
+        );
+        return undefined;
+      }
+
+      // Obtener configuración
+      const config = vscode.workspace.getConfiguration("zohoProjects");
+      const clientId = config.get<string>("clientId");
+      const clientSecret = config.get<string>("clientSecret");
+      const apiDomain =
+        config.get<string>("apiDomain") || "https://projectsapi.zoho.com";
+
+      if (!clientId || !clientSecret) {
+        const configureNow = "Configurar ahora";
+        const response = await vscode.window.showErrorMessage(
+          "Necesitas configurar el Client ID y Client Secret para OAuth de Zoho Projects",
+          configureNow
+        );
+
+        if (response === configureNow) {
+          await vscode.commands.executeCommand(
+            "workbench.action.openSettings",
+            "zohoProjects"
+          );
+        }
+        return undefined;
+      }
+
+      // Generar estado para prevenir CSRF
+      const state = uuidv4();
+
+      // Crear la URL de redirección
+      const callbackUri = `${vscode.env.uriScheme}://zoho-projects-time-tracker/auth-callback`;
+
+      const authUrl = new URL("https://accounts.zoho.com/oauth/v2/auth");
+      authUrl.searchParams.append("response_type", "code");
+      authUrl.searchParams.append("client_id", clientId);
+      authUrl.searchParams.append("scope", ZohoAuthenticationProvider.SCOPES);
+      authUrl.searchParams.append("redirect_uri", encodeURI(callbackUri));
+      authUrl.searchParams.append("state", state);
+      authUrl.searchParams.append("access_type", "offline");
+      authUrl.searchParams.append("prompt", "consent");
+
+      // Crear una promesa que se resolverá cuando se complete la autenticación
+      const authPromise = new Promise<vscode.AuthenticationSession>(
+        (resolve, reject) => {
+          // Registrar el manejador de URI para la respuesta
+          ZohoAuthenticationProvider.uriHandlerRegistration =
+            vscode.window.registerUriHandler({
+              handleUri: async (uri: vscode.Uri) => {
+                try {
+                  const query = new URLSearchParams(uri.query);
+                  const code = query.get("code");
+                  const returnedState = query.get("state");
+
+                  // Verificaciones de seguridad
+                  if (returnedState !== state) {
+                    reject(new Error("El estado no coincide"));
+                    return;
+                  }
+
+                  if (!code) {
+                    reject(
+                      new Error("No se recibió un código de autorización")
+                    );
+                    return;
+                  }
+
+                  // Intercambiar código por tokens
+                  const tokenResponse = await axios.post(
+                    "https://accounts.zoho.com/oauth/v2/token",
+                    null,
+                    {
+                      params: {
+                        grant_type: "authorization_code",
+                        client_id: clientId,
+                        client_secret: clientSecret,
+                        code,
+                        redirect_uri: callbackUri,
+                      },
+                      headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                      },
+                    }
+                  );
+
+                  const accessToken = tokenResponse.data.access_token;
+                  const refreshToken = tokenResponse.data.refresh_token;
+
+                  // Guardar tokens en secrets
+                  await this.context.secrets.store(
+                    "zoho-access-token",
+                    accessToken
+                  );
+                  await this.context.secrets.store(
+                    "zoho-refresh-token",
+                    refreshToken
+                  );
+
+                  // Obtener información del usuario
+                  const userResponse = await axios.get(
+                    `${apiDomain}/api/v3/portal`,
+                    {
+                      headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                      },
+                    }
+                  );
+
+                  const userId = userResponse.data.user_id || "unknown";
+                  const account = userResponse.data.name || "Zoho Account";
+
+                  // Crear sesión
+                  const session: vscode.AuthenticationSession = {
+                    accessToken,
+                    account: { id: userId, label: account },
+                    id: userId,
+                    scopes: ZohoAuthenticationProvider.SCOPES.split(","),
+                  };
+
+                  this.authenticationSession = session;
+
+                  // Almacenar metadatos importantes
+                  this.context.globalState.update("zoho-user-id", userId);
+                  this.context.globalState.update("zoho-account-name", account);
+
+                  vscode.window.showInformationMessage(
+                    `Se ha iniciado sesión en Zoho Projects como ${account}`
+                  ); // Limpiar manejador de URI
+                  if (ZohoAuthenticationProvider.uriHandlerRegistration) {
+                    ZohoAuthenticationProvider.uriHandlerRegistration.dispose();
+                    ZohoAuthenticationProvider.uriHandlerRegistration =
+                      undefined;
+                  }
+
+                  resolve(session);
+                } catch (error) {
+                  // Limpiar manejador de URI en caso de error
+                  if (ZohoAuthenticationProvider.uriHandlerRegistration) {
+                    ZohoAuthenticationProvider.uriHandlerRegistration.dispose();
+                    ZohoAuthenticationProvider.uriHandlerRegistration =
+                      undefined;
+                  }
+
+                  reject(error);
+                }
+              },
+            });
+        }
+      );
+
+      // Abrir el navegador para la autorización
+      await vscode.env.openExternal(vscode.Uri.parse(authUrl.toString()));
+
+      vscode.window.showInformationMessage(
+        "Se ha abierto una ventana del navegador para iniciar sesión en Zoho Projects"
+      );
+
+      try {
+        // Esperar a la autenticación
+        const session = await authPromise;
+        return session;
+      } catch (error) {
+        // Asegurarnos de limpiar el manejador de URI en caso de error
+        if (ZohoAuthenticationProvider.uriHandlerRegistration) {
+          ZohoAuthenticationProvider.uriHandlerRegistration.dispose();
+          ZohoAuthenticationProvider.uriHandlerRegistration = undefined;
+        }
+        throw error;
+      }
+    } catch (error) {
+      console.error("Error en el proceso de autenticación:", error);
+      vscode.window.showErrorMessage(
+        `Error de autenticación: ${
+          error instanceof Error ? error.message : "Error desconocido"
+        }`
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * Cierra sesión eliminando tokens y sesión
+   */
+  public async logout(): Promise<void> {
+    try {
+      await this.context.secrets.delete("zoho-access-token");
+      await this.context.secrets.delete("zoho-refresh-token");
+      this.context.globalState.update("zoho-user-id", undefined);
+      this.context.globalState.update("zoho-account-name", undefined);
+      this.authenticationSession = undefined;
+
+      vscode.window.showInformationMessage(
+        "Se ha cerrado la sesión de Zoho Projects"
+      );
+    } catch (error) {
+      console.error("Error al cerrar sesión:", error);
+      vscode.window.showErrorMessage(
+        `Error al cerrar sesión: ${
+          error instanceof Error ? error.message : "Error desconocido"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Verifica si hay una sesión activa
+   */
+  public async isAuthenticated(): Promise<boolean> {
+    try {
+      const accessToken = await this.context.secrets.get("zoho-access-token");
+      return !!accessToken;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Obtiene el token de acceso, refrescándolo si es necesario
+   */
+  public async getAccessToken(): Promise<string | undefined> {
+    try {
+      const accessToken = await this.context.secrets.get("zoho-access-token");
+      if (!accessToken) {
+        return undefined;
+      }
+
+      // En una implementación completa, aquí verificaríamos si el token ha expirado
+      // y lo refrescaríamos usando el refreshToken si es necesario
+
+      return accessToken;
+    } catch (error) {
+      console.error("Error al obtener access token:", error);
+      return undefined;
+    }
+  }
+}
