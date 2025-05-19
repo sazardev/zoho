@@ -83,11 +83,11 @@ export class ZohoAuthenticationProvider {
           );
         }
         return undefined;
-      } // Generar estado para prevenir CSRF
-      const state = uuidv4();
-      // URI de redirección usando el protocolo específico de VS Code
-      // IMPORTANTE: Esta URI debe coincidir EXACTAMENTE con la configurada en la consola de Zoho
-      const callbackUri = `vscode://zoho-projects-time-tracker/auth-callback`;
+      }
+
+      // Generar estado para prevenir CSRF
+      const state = uuidv4(); // URI de redirección usando el protocolo dinámico de VS Code (vscode://)
+      const callbackUri = `${vscode.env.uriScheme}://zoho-projects-time-tracker/auth-callback`;
       console.log(`URI de redirección configurado como: ${callbackUri}`);
 
       // Crear URL para la autorización
@@ -170,32 +170,10 @@ export class ZohoAuthenticationProvider {
         `Esperando redirección a: ${vscode.env.uriScheme}://zoho-projects-time-tracker/auth-callback`
       );
 
-      // Crear un timeout para rechazar la promesa si no se recibe respuesta en 10 minutos
-      const timeoutId = setTimeout(() => {
-        console.log("Tiempo de espera agotado para la autenticación");
-        vscode.window
-          .showWarningMessage(
-            "La autenticación ha expirado. Por favor, inténtalo de nuevo.",
-            "Ver instrucciones"
-          )
-          .then((selection) => {
-            if (selection === "Ver instrucciones") {
-              vscode.commands.executeCommand(
-                "zoho-projects-time-tracker.showAuthInstructions"
-              );
-            }
-          });
-        this.clearUriHandler();
-        reject(new Error("Tiempo de espera de autenticación agotado"));
-      }, 10 * 60 * 1000); // 10 minutos
-
       // Registrar un nuevo manejador de URI
       ZohoAuthenticationProvider.uriHandlerRegistration =
         vscode.window.registerUriHandler({
           handleUri: async (uri: vscode.Uri) => {
-            // Limpiar el timeout ya que recibimos una respuesta
-            clearTimeout(timeoutId);
-
             console.log(`URI recibido: ${uri.toString()}`);
             console.log(
               `Esquema: ${uri.scheme}, Autoridad: ${uri.authority}, Ruta: ${uri.path}, Consulta: ${uri.query}`
@@ -247,7 +225,7 @@ export class ZohoAuthenticationProvider {
                       client_id: clientId,
                       client_secret: clientSecret,
                       code,
-                      redirect_uri: `vscode://zoho-projects-time-tracker/auth-callback`,
+                      redirect_uri: `${vscode.env.uriScheme}://zoho-projects-time-tracker/auth-callback`,
                     },
                     headers: {
                       "Content-Type": "application/x-www-form-urlencoded",
@@ -312,26 +290,15 @@ export class ZohoAuthenticationProvider {
                 // Comprueba si es un error de URI de redirección no válido
                 if (
                   errorMessage.includes("redirect_uri") ||
-                  errorMessage.includes("redirect uri") ||
-                  errorMessage.includes("redireccionamiento")
+                  errorMessage.includes("redirect uri")
                 ) {
                   const configureHint =
-                    "Asegúrate de que el URI de redirección configurado en Zoho Developer Console coincide EXACTAMENTE con (incluyendo mayúsculas y minúsculas):";
-                  const uriToUse = `vscode://zoho-projects-time-tracker/auth-callback`;
+                    "Asegúrate de que el URI de redirección configurado en Zoho Developer Console coincide exactamente con:";
+                  const uriToUse = `${vscode.env.uriScheme}://zoho-projects-time-tracker/auth-callback`;
 
-                  const openDocs = "Ver instrucciones";
-                  const response = await vscode.window.showErrorMessage(
-                    `Error en la redirección de OAuth: ${errorMessage}. ${configureHint} ${uriToUse}`,
-                    openDocs
+                  vscode.window.showErrorMessage(
+                    `Error en la redirección de OAuth: ${errorMessage}. ${configureHint} ${uriToUse}`
                   );
-
-                  if (response === openDocs) {
-                    await vscode.env.openExternal(
-                      vscode.Uri.file(
-                        "c:\\Users\\Usuario\\Documents\\zoho\\AUTENTICACION_VSCODE.md"
-                      )
-                    );
-                  }
                 } else {
                   vscode.window.showErrorMessage(
                     `Error al procesar la autenticación: ${errorMessage}`
@@ -456,35 +423,15 @@ export class ZohoAuthenticationProvider {
     const uriString = uri.toString();
     console.log("Intentando extracción manual de parámetros");
 
-    // Normalizar la URI para manejar diferentes formatos de redirección
+    // Manejar el caso especial cuando Zoho devuelve https://vscode// en lugar de vscode://
     let normalizedUriString = uriString;
-
-    // Casos comunes de URI malformadas que necesitamos manejar
     if (uriString.startsWith("https://vscode//")) {
       normalizedUriString = uriString.replace("https://vscode//", "vscode://");
       console.log(
         `URI normalizado de https://vscode// a vscode://: ${normalizedUriString}`
       );
-    } else if (uriString.startsWith("http://vscode//")) {
-      normalizedUriString = uriString.replace("http://vscode//", "vscode://");
-      console.log(
-        `URI normalizado de http://vscode// a vscode://: ${normalizedUriString}`
-      );
-    } else if (uriString.includes("vscode:/zoho-projects")) {
-      // Manejar caso de un solo slash después de vscode:
-      normalizedUriString = uriString.replace("vscode:/", "vscode://");
-      console.log(
-        `URI normalizado de vscode:/ a vscode://: ${normalizedUriString}`
-      );
-    } else if (uriString.includes("vscode:///")) {
-      // Manejar caso de tres slashes
-      normalizedUriString = uriString.replace("vscode:///", "vscode://");
-      console.log(
-        `URI normalizado de vscode:/// a vscode://: ${normalizedUriString}`
-      );
     }
 
-    // Intentar extraer los parámetros usando expresiones regulares
     const codeMatch = normalizedUriString.match(/[?&]code=([^&]+)/);
     const stateMatch = normalizedUriString.match(/[?&]state=([^&]+)/);
 

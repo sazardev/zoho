@@ -18,6 +18,8 @@ Esta guía te ayudará a probar y desarrollar la extensión de Zoho Projects Tim
    - Client ID
    - Client Secret
 3. Configura la redirección URI a: `vscode://zoho-projects-time-tracker/auth-callback`
+   - Esta URI utiliza el protocolo URI handler de VS Code para capturar la respuesta de autenticación
+   - También se maneja correctamente la versión malformada `https://vscode//zoho-projects-time-tracker/auth-callback`
 
 ### Configuración del proyecto
 

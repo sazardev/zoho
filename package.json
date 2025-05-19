@@ -23,7 +23,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onUri"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -55,6 +56,10 @@
       {
         "command": "zoho-projects-time-tracker.showTaskDetails",
         "title": "Zoho Projects: Ver detalles de tarea"
+      },
+      {
+        "command": "zoho-projects-time-tracker.showAuthInstructions",
+        "title": "Zoho Projects: Ver instrucciones de autenticación"
       }
     ],
     "viewsContainers": {

@@ -5,6 +5,7 @@ import { ZohoAuthenticationProvider } from "./authentication";
 import { ZohoStatusBar } from "./status-bar";
 import { TasksProvider, TimerProvider, TaskTreeItem } from "./views";
 import { TasksManager } from "./tasks";
+import * as path from "path";
 
 // Variables globales para mantener instancias
 let authProvider: ZohoAuthenticationProvider;
@@ -61,6 +62,29 @@ export function activate(context: vscode.ExtensionContext) {
               "Conectado exitosamente a Zoho Projects"
             );
           }
+        }
+      }
+    )
+  );
+
+  // Añadir comando para abrir instrucciones de autenticación
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "zoho-projects-time-tracker.showAuthInstructions",
+      async () => {
+        const docPath = path.join(
+          context.extensionPath,
+          "AUTENTICACION_VSCODE.md"
+        );
+        const uri = vscode.Uri.file(docPath);
+        try {
+          await vscode.commands.executeCommand("markdown.showPreview", uri);
+          vscode.window.showInformationMessage(
+            "Instrucciones de autenticación abiertas"
+          );
+        } catch (error) {
+          console.error("Error al abrir instrucciones:", error);
+          vscode.env.openExternal(uri);
         }
       }
     )
