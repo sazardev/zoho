@@ -1,13 +1,15 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from "vscode";
-import { ZohoAuthenticationProvider } from "./authentication";
+import { ZohoAuthenticationProvider } from "./authentication-webview"; // Cambiado a usar la versión WebView
+import { AuthWebviewProvider } from "./auth-webview-provider"; // Nuevo proveedor WebView
 import { ZohoStatusBar } from "./status-bar";
 import { TasksProvider, TimerProvider, TaskTreeItem } from "./views";
 import { TasksManager } from "./tasks";
 import * as path from "path";
 
 // Variables globales para mantener instancias
+let authWebviewProvider: AuthWebviewProvider;
 let authProvider: ZohoAuthenticationProvider;
 let tasksManager: TasksManager;
 let statusBar: ZohoStatusBar;
@@ -21,7 +23,8 @@ export function activate(context: vscode.ExtensionContext) {
   console.log('La extensión "zoho-projects-time-tracker" está activa!');
 
   // Inicializar proveedores y manejadores
-  authProvider = new ZohoAuthenticationProvider(context);
+  authWebviewProvider = new AuthWebviewProvider();
+  authProvider = new ZohoAuthenticationProvider(context, authWebviewProvider);
   tasksManager = new TasksManager();
   statusBar = new ZohoStatusBar();
 
